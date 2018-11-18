@@ -1,9 +1,11 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdint.h>
+
 #define XSIZE 100
 #define YSIZE 100
-#define CACHESIZE 128 // in kBytes
+#define NUMBLOCKS 256   // for 16kB its 256; indexShift = 4; tagShift = 12; mask = 0xFF
+						// for 128kB its 1024; indexShift = 5; tagShift = 15; mask = 0x3FF
 
 // Block Struct
 struct Block {
@@ -20,10 +22,12 @@ int main(void) {
 
 	// Miss/Hit Variables
 	int miss = 0, hit = 0;
-	struct Block cache[CACHESIZE];
-	for(i=0;i < CACHESIZE; ++i){
+	uint32_t indexShift = 4;
+	uint32_t tagShift = 12;
+	uint32_t indexMask = 0xFF;
+	struct Block cache[NUMBLOCKS];
+	for(i=0;i < NUMBLOCKS; ++i){
 		cache[i].valid = 0;
-		cache[i].tag = 0;
 	}
 	uint32_t addr;
 	uint32_t index;
@@ -63,8 +67,8 @@ int main(void) {
 				
 				// Check Hit/Miss - Y
 				addr = (uintptr_t) &y[i][k];
-				index = (addr >> 4) & 0xFF;
-				tag = addr >> 12;
+				index = (addr >> indexShift) & indexMask;
+				tag = addr >> tagShift;
 
 				if (cache[index].valid == 1 && cache[index].tag == tag){
 					hit++;
@@ -77,8 +81,8 @@ int main(void) {
 
 				// Check Hit/Miss - Z
 				addr = (uintptr_t) &z[k][j];
-				index = (addr >> 4) & 0xFF;
-				tag = addr >> 12;
+				index = (addr >> indexShift) & indexMask;
+				tag = addr >> tagShift;
 
 				if (cache[index].valid == 1 && cache[index].tag == tag){
 					hit++;
@@ -98,9 +102,9 @@ int main(void) {
 
 	fprintf(stdout, "Hits: %i\n", hit);
 	fprintf(stdout, "Miss: %i\n", miss);
-	double miss_d = (double) miss;
-	double hit_d = (double) hit;
-	printf("Miss Rate: %lf %%\n", 100 * (miss_d/(hit_d + miss_d)));
+	// double miss_d = (double) miss;
+	// double hit_d = (double) hit;
+	// printf("Miss Rate: %lf %%\n", 100 * (miss_d/(hit_d + miss_d)));
 
 	// Addresses
 	// printf("\n");
