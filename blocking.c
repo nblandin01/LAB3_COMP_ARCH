@@ -1,10 +1,21 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdint.h>
-// Compile with: gcc -Wall blocking.c -o blocking
 
 #define XSIZE 100
 #define YSIZE 100
+#define NUMBLOCKS 256   // for 16kB its 256; indexShift = 4; tagShift = 12; mask = 0xFF
+						// for 128kB its 1024; indexShift = 5; tagShift = 15; mask = 0x3FF
+
+// Block Struct
+struct Block {
+	uint32_t valid;
+	uint32_t tag;
+};
+
+int min(int a, int b){
+	return a < b ? a : b;
+}
 
 int main() {
 
@@ -13,14 +24,19 @@ int main() {
 	int z[XSIZE][YSIZE];
 
 	int i, j, k;
-  
-	// Initialize Variables for Miss/Hit
-	int CACHESIZE = 128; // in kB
+  	
+  	// CHANGE PARAMATERS
+  	int bSize = 11; // Blocking Factor
+  	int32_t indexShift = 4;
+	uint32_t tagShift = 12;
+	uint32_t indexMask = 0xFF;
+
+	// Miss/Hit Variables
 	int miss = 0, hit = 0;
-	uint32_t tagMask = 0xfffff000;
-	uint32_t indexMask = 0x00000ff0;
-	uint32_t arr[CACHESIZE];
-	for(i = 0;i < CACHESIZE; ++i) arr[i] = 0;
+	struct Block cache[NUMBLOCKS];
+	for(i=0;i < NUMBLOCKS; ++i){
+		cache[i].valid = 0;
+	}
 	uint32_t addr;
 	uint32_t index;
 	uint32_t tag;
@@ -28,21 +44,6 @@ int main() {
   	/* Initialize x matrix */
 	for(i=0; i<XSIZE; i++) {
 		for(j=0; j<YSIZE; j++) {
-
-			addr = (uint32_t)&x[i][j];
-			index = (addr & indexMask)>>4;
-			tag = (addr & tagMask)>>12;
-			
-			if(arr[index] == 0) {
-				miss++;
-				arr[index] = tag;
-			}
-			else if (tag == arr[index]){
-				hit++;
-			}
-			else{
-				miss++;
-			}
 			x[i][j] = 0;
 		}
 	}
@@ -50,45 +51,13 @@ int main() {
   	/* Initialize y matrix */
 	for(i=0; i<XSIZE; i++) {
 		for(j=0; j<YSIZE; j++) {
-
-			addr = (uint32_t)&y[i][j];
-			index = (addr & indexMask)>>4;
-			tag = (addr & tagMask)>>12;
-
-			if(arr[index] == 0) {
-				miss++;
-				arr[index] = tag;
-			}
-			else if (tag == arr[index]){
-				hit++;
-			}
-			else{
-				miss++;
-			}
-
 			y[i][j] = i + j + 2;
 		}
 	}
 
   	/* Initialize z matrix */
 	for(i=0; i<XSIZE; i++) {
-		for(j=0; j<YSIZE; j++) {
-			
-			addr = (uint32_t)&y[i][j];
-			index = (addr & indexMask)>>4;
-			tag = (addr & tagMask)>>12;
-
-			if(arr[index] == 0) {
-				miss++;
-				arr[index] = tag;
-			}
-			else if (tag == arr[index]){
-				hit++;
-			}
-			else{
-				miss++;
-			}
-
+		for(j=0; j<YSIZE; j++) {		
 			z[i][j] = i + j + 2;
 		}
 	}
@@ -96,71 +65,42 @@ int main() {
 	// Blocking Matrix Multiply
 	int p, q, kk, jj;
 	int sum = 0;
-	int bSize = 26; // Blocking Factor
 
-	// Account for bSize that AREN'T an Integer Multiple of Matrix Size
-	int n = 100; // Make equal shortest size of matrix
-	int variant = bSize * (n / bSize);
+	for(k = 0; k < XSIZE; k += bSize) {
+		for(j = 0; j < YSIZE; j += bSize) {
+			for (i = 0; i < XSIZE; ++i){
+				for (jj = j; jj < min(j + bSize, YSIZE); ++jj){
+					for (kk = k; kk < min(k + bSize, XSIZE); ++kk){
 
-	for (kk = 0; kk < variant; kk += bSize){
-		for (jj = 0; jj < variant; jj += bSize){
+						// Check Hit/Miss - Y
+						addr = (uintptr_t) &y[i][kk];
+						index = (addr >> indexShift) & indexMask;
+						tag = addr >> tagShift;
 
-			for (i = 0; i < n; ++i){
-				// Check Min
-				p = (jj + bSize > YSIZE) ? YSIZE : (jj + bSize);
-
-				for (j = jj; j < p; ++j){
-					// Check Min
-					q = (kk + bSize > YSIZE) ? YSIZE : (kk + bSize);
-
-					// Perform Calculation
-					sum = 0;
-					for (k = kk; k < q; ++k){
-						sum += y[i][k] * z[k][j];
-
-						// Check Cache Hit/Miss
-						addr = (uint32_t)&y[i][j];
-						index = (addr & indexMask)>>4;
-						tag = (addr & tagMask)>>12;
-						if(arr[index] == 0) {
-							miss++;
-							arr[index] = tag;
-						}
-						else if (tag == arr[index]){
+						if (cache[index].valid == 1 && cache[index].tag == tag){
 							hit++;
 						}
 						else{
 							miss++;
+							cache[index].tag = tag;
+							cache[index].valid = 1;
 						}
 
-						addr = (uint32_t)&z[i][j];
-						index = (addr & indexMask)>>4;
-						tag = (addr & tagMask)>>12;
-						if(arr[index] == 0) {
-							miss++;
-							arr[index] = tag;
-						}
-						else if (tag == arr[index]){
+						// Check Hit/Miss - Z
+						addr = (uintptr_t) &z[kk][jj];
+						index = (addr >> indexShift) & indexMask;
+						tag = addr >> tagShift;
+
+						if (cache[index].valid == 1 && cache[index].tag == tag){
 							hit++;
 						}
 						else{
 							miss++;
+							cache[index].tag = tag;
+							cache[index].valid = 1;
 						}
 
-					}
-					x[i][j] += sum;
-					addr = (uint32_t)&x[i][j];
-					index = (addr & indexMask)>>4;
-					tag = (addr & tagMask)>>12;
-					if(arr[index] == 0) {
-						miss++;
-						arr[index] = tag;
-					}
-					else if (tag == arr[index]){
-						hit++;
-					}
-					else{
-						miss++;
+						x[i][jj] += y[i][kk] * z[kk][jj];
 					}
 				}
 			}
@@ -169,7 +109,6 @@ int main() {
 
 
 	// Print Result
-	printf("Result for: %dkB and %dx%d\n", CACHESIZE, XSIZE, YSIZE);
 	printf("Hit: %d\n", hit);
 	printf("Miss: %d\n", miss);
 
