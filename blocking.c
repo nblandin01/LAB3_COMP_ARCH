@@ -26,7 +26,7 @@ int main() {
 	int i, j, k;
   	
   	// CHANGE PARAMATERS
-  	int bSize = 11; // Blocking Factor
+  	int bSize = 20; // Blocking Factor
   	int32_t indexShift = 4;
 	uint32_t tagShift = 12;
 	uint32_t indexMask = 0xFF;
